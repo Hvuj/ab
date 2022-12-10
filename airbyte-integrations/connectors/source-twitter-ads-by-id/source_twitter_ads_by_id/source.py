@@ -158,13 +158,6 @@ class CampaignInsights(TwitterAdsByIdStream):
     use_cache: Final[bool] = True
     data_field: Final[str] = "account_id"
 
-    def next_page_token(self, response, current_page_token: Optional[int]) -> Optional[Mapping[str, Any]]:
-        current_page_token = current_page_token or 0
-        if response is not None and hasattr(response, self.data_field):
-            return None if self.page_size_limit > len(response[self.data_field]) else current_page_token + 1
-        else:
-            return None
-
     def request_params(
             self,
             stream_slice: Mapping[str, Any] = None,
@@ -177,17 +170,10 @@ class CampaignInsights(TwitterAdsByIdStream):
             self,
             **kwargs: Mapping[str, Any],
     ) -> Iterable[Optional[Mapping[str, Any]]]:
-        a = self.Campaigns().read_records(SyncMode.full_refresh)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
-        print(a)
+        # a = self.Campaigns().read_records(SyncMode.full_refresh)
+        for campaign in Campaigns(self.twitter_client, self.config).read_records(SyncMode.full_refresh):
+            print(campaign)
+
         yield {"account_id": 2}
         # yield from []
 
