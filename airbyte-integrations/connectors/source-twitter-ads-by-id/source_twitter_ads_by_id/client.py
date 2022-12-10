@@ -5,6 +5,7 @@ from twitter_ads.http import Request
 from twitter_ads.enum import ENTITY_STATUS
 from twitter_ads.enum import ENTITY, GRANULARITY, METRIC_GROUP, PLACEMENT
 
+
 class TwitterClient:
     def __init__(
             self,
@@ -58,12 +59,12 @@ class TwitterClient:
 
         return ids
 
-    def request(self):
-        resource = f"/11/stats/accounts/{TWITTER_ACCOUNT_ID}/"
+    def request(self, campaign_ids: Optional[list]):
+        resource = f"/11/stats/accounts/{self.account_id}/"
 
         campaign_id = ','.join(campaign_ids)
 
-        metric_groups = METRIC_GROUP.ENGAGEMENT + ',' + METRIC_GROUP.BILLING
+        metric_groups = f'{METRIC_GROUP.ENGAGEMENT},{METRIC_GROUP.BILLING}'
         print(campaign_id)
         params = {
             "entity": ENTITY.CAMPAIGN,
@@ -75,10 +76,9 @@ class TwitterClient:
             "placement": PLACEMENT.PUBLISHER_NETWORK
         }
 
-        req = Request(client=twitter_client,
+        req = Request(client=self.twitter_client,
                       method="GET",
                       resource=resource,
                       params=params)
 
-        response = req.perform()
-        yield from response
+        yield from req.perform()

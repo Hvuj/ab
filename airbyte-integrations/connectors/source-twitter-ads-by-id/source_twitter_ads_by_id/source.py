@@ -78,13 +78,15 @@ class TwitterAdsByIdStream(Stream, ABC):
             "account_id": self.config['account_id'],
             "params": params,
         }
-        # request = self.twitter_client.request(**request_kwargs)
+        # request = self.twitter_client.request(**)
         request = params
-        print('hey')
-        print(params)
+        # print('hey')
+        # print(params)
         # for i in params:
         #     print(i)
         # print(f"this is the params:\n{params}")
+        print('from send_request')
+        print(request)
         return {"strssss": list(request)}
 
     def read_records(
@@ -97,6 +99,7 @@ class TwitterAdsByIdStream(Stream, ABC):
         stream_state = stream_state or {}
         next_page_token = None
         account_id = str(self.account_id) if stream_slice else None
+
 
         # yield from stream_slice
         # ids: Final[Optional[list[str]]] = [mini_slice["campaign_id"] for mini_slice in stream_slice]
@@ -118,13 +121,27 @@ class TwitterAdsByIdStream(Stream, ABC):
             #     print(i)
 
             # send request function return the actual data we want
+            # print(f'this is the response\n{params}')
+            # print(f'this is the response\n{response}')
+
+            print(stream_slice)
             response = self.send_request(params, account_id=account_id)
-            print(f'this is the response\n{params}')
-            print(f'this is the response\n{response}')
+            print('from read records')
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
+            print(response)
             for record in self.parse_response(response):
-                yield record
-            #
-            # next_page_token = self.next_page_token(response, current_page_token=next_page_token)
+                return record
+
+            next_page_token = self.next_page_token(response, current_page_token=next_page_token)
             if not next_page_token:
                 break
 
@@ -149,8 +166,8 @@ class Campaigns(TwitterAdsByIdStream):
             **kwargs: Mapping[str, Any],
     ) -> MutableMapping[str, Any]:
 
-        print('campaigns work')
-        yield from self.twitter_client.get_campaigns()
+        print('1 - from campaign object')
+        return self.twitter_client.get_campaigns()
 
 
 class CampaignInsights(TwitterAdsByIdStream):
@@ -170,12 +187,13 @@ class CampaignInsights(TwitterAdsByIdStream):
             self,
             **kwargs: Mapping[str, Any],
     ) -> Iterable[Optional[Mapping[str, Any]]]:
-        # a = self.Campaigns().read_records(SyncMode.full_refresh)
+
         for campaign in Campaigns(self.twitter_client, self.config).read_records(SyncMode.full_refresh):
             print(campaign)
 
-        yield {"account_id": 2}
-        # yield from []
+        #     if self.account_id:
+        #         yield {"account_id": self.account_id, "campaign_id": campaign}
+        return ['this is the end of it']
 
 
 # Basic incremental stream
@@ -228,4 +246,5 @@ class SourceTwitterAdsById(AbstractSource):
 
     def streams(self, config: Mapping[str, Any]) -> List[Stream]:
         twitter_client = TwitterClient(**config)
-        return [Campaigns(twitter_client, config), CampaignInsights(twitter_client, config)]
+        # return [Campaigns(twitter_client, config), CampaignInsights(twitter_client, config)]
+        return [Campaigns(twitter_client, config)]
