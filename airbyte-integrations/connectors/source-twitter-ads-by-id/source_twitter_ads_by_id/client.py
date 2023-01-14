@@ -1,35 +1,28 @@
-import sys
-from typing import Mapping, Any, Final, Optional
+from typing import Mapping, Any, Final, Optional, Iterable
 from twitter_ads.client import Client
 from twitter_ads.http import Request
 from twitter_ads.enum import ENTITY_STATUS
 from twitter_ads.enum import ENTITY, GRANULARITY, METRIC_GROUP, PLACEMENT
+from requests.exceptions import HTTPError, ConnectionError, TooManyRedirects
 
 
 class TwitterClient:
     def __init__(
             self,
-            consumer_key: str,
-            consumer_secret: str,
-            access_token: str = None,
-            token_secret: str = None,
-            account_id: str = None,
-            reports_start_date: str = None,
+            credentials: Mapping[str, Any],
             **kwargs: Mapping[str, Any],
     ) -> None:
-        self.consumer_key = consumer_key
-        self.client_secret = consumer_secret
-        self.access_token = access_token
-        self.token_secret = token_secret
-        self.account_id = account_id
+        self.consumer_key: Final[str] = credentials['consumer_key']
+        self.consumer_secret: Final[str] = credentials['consumer_secret']
+        self.access_token: Final[str] = credentials['access_token']
+        self.token_secret: Final[str] = credentials['token_secret']
+        self.account_id: Final[str] = credentials['account_id']
 
-        self.twitter_client = self.get_auth_client(consumer_key=consumer_key,
-                                                   consumer_secret=consumer_secret,
-                                                   access_token=access_token,
-                                                   token_secret=token_secret,
-                                                   account_id=account_id)
-        # self.campaigns = self._get_access_token()
-        # self.reports_start_date = pendulum.parse(reports_start_date).astimezone(tz=timezone.utc)
+        self.twitter_client = self.get_auth_client(consumer_key=self.consumer_key,
+                                                   consumer_secret=self.consumer_secret,
+                                                   access_token=self.access_token,
+                                                   token_secret=self.token_secret,
+                                                   account_id=self.account_id)
 
     @staticmethod
     def get_auth_client(consumer_key: str, consumer_secret: str, access_token: str, token_secret: str, account_id: str) -> Client:
@@ -47,38 +40,49 @@ class TwitterClient:
                     'retry_on_timeouts': True,
                     'timeout': (1.0, 3.0)
                 })
-            return twitter_client.accounts(account_id)
+            return twitter_client
         except Exception as e:
             raise print('There was an error: {e}') from e
 
     def get_campaigns(self) -> Optional[list]:
-        campaigns: Final[Optional[Any]] = self.twitter_client
+        campaigns: Final[Optional[Any]] = self.twitter_client.accounts(self.account_id)
         ids: Final[list[dict[Optional[str, str]]]] = [{"campaign_id": campaign.id,
                                                        "campaign_name": campaign.name} for campaign in campaigns.campaigns() if
                                                       self.account_id]
-
         return ids
 
-    def request(self, campaign_ids: Optional[list]):
-        resource = f"/11/stats/accounts/{self.account_id}/"
+    def request(self, campaign_ids_list: Iterable[list[str]],
+                account_id: Optional[str],
+                start_date: str,
+                end_date: str):
+        resource: Final[str] = f"/11/stats/accounts/{account_id}/"
 
-        campaign_id = ','.join(campaign_ids)
+        full_data: Final[list] = []
+        for campaign_ids in campaign_ids_list:
+            campaign_id: str = ','.join(campaign_ids)
+            metric_groups: str = f'{METRIC_GROUP.ENGAGEMENT},{METRIC_GROUP.BILLING}'
+            params: Mapping[str, Any] = {
+                "entity": ENTITY.CAMPAIGN,
+                "entity_ids": f'{campaign_id}',
+                "start_time": start_date,
+                "end_time": end_date,
+                "granularity": GRANULARITY.DAY,
+                "metric_groups": metric_groups,
+                "placement": PLACEMENT.ALL_ON_TWITTER
+            }
 
-        metric_groups = f'{METRIC_GROUP.ENGAGEMENT},{METRIC_GROUP.BILLING}'
-        print(campaign_id)
-        params = {
-            "entity": ENTITY.CAMPAIGN,
-            "entity_ids": f'{campaign_id}',
-            "start_time": last_7_days,
-            "end_time": yesterday,
-            "granularity": GRANULARITY.DAY,
-            "metric_groups": metric_groups,
-            "placement": PLACEMENT.PUBLISHER_NETWORK
-        }
-
-        req = Request(client=self.twitter_client,
-                      method="GET",
-                      resource=resource,
-                      params=params)
-
-        yield from req.perform()
+            req: Optional[Request] = Request(client=self.twitter_client,
+                                             method="GET",
+                                             resource=resource,
+                                             params=params)
+            try:
+                res = req.perform()
+                if hasattr(res, 'code') and 200 <= res.code < 300:
+                    full_data.append(res.body)
+            except (TooManyRedirects, HTTPError, ConnectionError) as errors:
+                print(f'There is an error: {errors}')
+                raise errors
+            except (KeyError, ValueError, TypeError) as base_errors:
+                print(f'There is an error: {base_errors}')
+                raise base_errors
+        return full_data

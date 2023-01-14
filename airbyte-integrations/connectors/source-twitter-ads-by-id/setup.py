@@ -7,7 +7,8 @@ from setuptools import find_packages, setup
 
 MAIN_REQUIREMENTS = [
     "airbyte-cdk",
-    "twitter-ads"
+    "twitter-ads",
+    "pendulum"
 ]
 
 TEST_REQUIREMENTS = [
