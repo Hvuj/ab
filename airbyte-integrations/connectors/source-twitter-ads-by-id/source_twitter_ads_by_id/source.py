@@ -1,15 +1,16 @@
 #
 # Copyright (c) 2022 Airbyte, Inc., all rights reserved.
 #
+import json
 import sys
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Iterator, Callable, Final
 from airbyte_cdk.sources import AbstractSource
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.http import HttpStream
 from source_twitter_ads_by_id.client import TwitterClient
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 import logging
 import traceback
 import requests
@@ -18,15 +19,21 @@ import pendulum
 
 # Basic full refresh stream
 class TwitterAdsByIdStream(Stream, ABC):
-    # url_base = "/11/stats/accounts/"
-
     primary_key: Any = None
 
     def __init__(self, twitter_client: TwitterClient, config: Mapping[str, Any], **kwargs) -> None:
         super().__init__(**kwargs)
         self.twitter_client = twitter_client
-        self.account_id = config["account_id"]
+        self.account_id = config['credentials']["account_id"]
         self.config = config
+
+    @property
+    @abstractmethod
+    def data_field(self) -> str:
+        """
+        Specifies root object name in a stream response
+        """
+        pass
 
     def next_page_token(self, response, current_page_token: Optional[int]) -> Optional[Mapping[str, Any]]:
         return None
@@ -38,96 +45,62 @@ class TwitterAdsByIdStream(Stream, ABC):
         for sp in range(0, list_size, n):
             yield list_[sp:min(sp + n, list_size)]
 
-    # def parse_response(self, response: sudsobject.Object, **kwargs) -> Iterable[Mapping]:
-    #     if response is not None and hasattr(response, self.data_field):
-    #         yield from self.client.asdict(response)[self.data_field]
-    #
-    #     yield from []
-
-    # def send_request(self, params: Mapping[str, Any], method: str, resource: str,
-    #                  entity:) -> Mapping[str, Any]:
-    #     request_kwargs = {
-    #         "service_name": self.service_name,
-    #         "customer_id": customer_id,
-    #         "account_id": self.account_id,
-    #         "operation_name": self.operation_name,
-    #         "params": params,
-    #     }
-    #     request = self.client.request(**request_kwargs)
-
     def parse_response(self, response, **kwargs) -> Iterable[Mapping]:
-        print('this is the response from parse_response')
-        if response is not None and hasattr(response, self.data_field):
-            yield from self.client.asdict(response)[self.data_field]
+        print('this is 2nd')
+        yield response
 
-        yield from []
+    def send_request(self,
+                     campaign_ids_list: Optional[Iterable[list[str]]],
+                     start_date: str,
+                     end_date: str) -> Mapping[str, Any]:
+        try:
+            request_kwargs: Final[Mapping[str, Any]] = {
+                "campaign_ids_list": campaign_ids_list,
+                "account_id": self.account_id,
+                "start_date": start_date,
+                "end_date": end_date
+            }
 
-    # ids: list = []
-    # for campaign_id in stream_slice:
-    #     ids.append(campaign_id[0])
-    #     print(campaign_id[0])
-    #
-    # if not ids:
-    #     print('Error: A minimum of 1 items must be provided for entity_ids')
-    #     sys.exit()
-    #
-    # yield list(self.split_list(ids, 20))
-
-    def send_request(self, params: Mapping[str, Any], account_id: str) -> Mapping[str, Any]:
-        request_kwargs = {
-            "account_id": self.config['account_id'],
-            "params": params,
-        }
-        # request = self.twitter_client.request(**request_kwargs)
-        request = params
-        print('hey')
-        print(params)
-        # for i in params:
-        #     print(i)
-        # print(f"this is the params:\n{params}")
-        return {"strssss": list(request)}
+            request: Final[Optional[Any]] = self.twitter_client.request(**request_kwargs)
+            if request is not None:
+                for _ in request:
+                    return _
+        except (KeyError, ValueError, TypeError) as base_errors:
+            print(f'There is an error: {base_errors}')
+            raise base_errors
 
     def read_records(
             self,
             sync_mode: SyncMode,
-            stream_slice: Mapping[dict[str], Any] = None,
+            stream_slice: Mapping[str, Any] = None,
             stream_state: Mapping[str, Any] = None,
             **kwargs: Mapping[str, Any],
     ) -> Iterable[Mapping[str, Any]]:
         stream_state = stream_state or {}
         next_page_token = None
         account_id = str(self.account_id) if stream_slice else None
-
-        # yield from stream_slice
-        # ids: Final[Optional[list[str]]] = [mini_slice["campaign_id"] for mini_slice in stream_slice]
-        #
-        # if not ids:
-        #     print('Error: A minimum of 1 items must be provided for entity_ids')
-        #     sys.exit()
-        # campaign_ids_list = list(self.split_list(ids, 20))
+        start_date = str(self.config['reports_start_date'])
+        end_date = str(self.config['reports_end_date'])
+        print(stream_slice)
 
         while True:
             params = self.request_params(
                 stream_state=stream_state,
                 stream_slice=stream_slice,
-                next_page_token=next_page_token,
-                account_id=account_id,
+                next_page_token=next_page_token
             )
-            # the params are the campaign_id and campaign_name dict
-            # for i in params:
-            #     print(i)
 
-            # send request function return the actual data we want
-            response = self.send_request(params, account_id=account_id)
-            print(f'this is the response\n{params}')
-            print(f'this is the response\n{response}')
-            for record in self.parse_response(response):
-                yield record
-            #
-            # next_page_token = self.next_page_token(response, current_page_token=next_page_token)
+            if 'campaign_ids' in params:
+                campaign_ids_list = params['campaign_ids']
+                response = self.send_request(campaign_ids_list=params['campaign_ids'],
+                                             start_date=start_date,
+                                             end_date=end_date)
+                response["campaign_data"] = params['campaign_data']
+                yield from self.parse_response(response)
+                next_page_token = self.next_page_token(response, current_page_token=next_page_token)
+
             if not next_page_token:
                 break
-
         yield from []
 
 
@@ -146,36 +119,53 @@ class Campaigns(TwitterAdsByIdStream):
     def request_params(
             self,
             stream_slice: Mapping[str, Any] = None,
+            stream_state: Mapping[str, Any] = None,
             **kwargs: Mapping[str, Any],
     ) -> MutableMapping[str, Any]:
 
-        print('campaigns work')
-        yield from self.twitter_client.get_campaigns()
+        params = self.twitter_client.get_campaigns()
+        ids: Optional[list[str]] = [campaign_id["campaign_id"] for campaign_id in params]
+        if len(ids) == 0:
+            print('Error: A minimum of 1 items must be provided for entity_ids')
+            sys.exit()
+
+        campaign_ids_list: Optional[list[list[str]]] = list(self.split_list(ids, 20))
+        print('this is 1st')
+        return {"campaign_ids": campaign_ids_list, "campaign_data": params}
 
 
-class CampaignInsights(TwitterAdsByIdStream):
-    primary_key: Final[str] = "id"
-    use_cache: Final[bool] = True
-    data_field: Final[str] = "account_id"
-
-    def request_params(
-            self,
-            stream_slice: Mapping[str, Any] = None,
-            **kwargs: Mapping[str, Any],
-    ) -> MutableMapping[str, Any]:
-        print('this one 2')
-        return {"account_id": self.account_id, "stream_slice": stream_slice}
-
-    def stream_slices(
-            self,
-            **kwargs: Mapping[str, Any],
-    ) -> Iterable[Optional[Mapping[str, Any]]]:
-        # a = self.Campaigns().read_records(SyncMode.full_refresh)
-        for campaign in Campaigns(self.twitter_client, self.config).read_records(SyncMode.full_refresh):
-            print(campaign)
-
-        yield {"account_id": 2}
-        # yield from []
+# class CampaignInsights(TwitterAdsByIdStream):
+#     primary_key: Final[str] = "id"
+#     use_cache: Final[bool] = True
+#     data_field: Final[str] = "id"
+#
+#     def request_params(
+#             self,
+#             stream_slice: Mapping[str, Any] = None,
+#             stream_state: Mapping[str, Any] = None,
+#             **kwargs: Mapping[str, Any],
+#     ) -> MutableMapping[str, Any]:
+#         print('this is last')
+#
+#         return {"stream_slice": stream_slice}
+#
+#     def stream_slices(
+#             self,
+#             **kwargs: Mapping[str, Any],
+#     ) -> Iterable[Optional[Mapping[str, Any]]]:
+#         campaigns = Campaigns(self.twitter_client, self.config)
+#
+#         for campaign in campaigns.read_records(SyncMode.full_refresh,
+#                                                stream_slice={"account_id": self.account_id,
+#                                                              "start_date": self.config["reports_start_date"],
+#                                                              "end_date": self.config["reports_end_date"]}):
+#             print('this is 3rd')
+#             # yield {"campaign_id": [i['id'] for i in campaign["data"]],
+#             #        "account_id": self.account_id,
+#             #        "start_date": self.config["reports_start_date"],
+#             #        "end_date": self.config["reports_end_date"]}
+#             yield campaign
+#         yield from []
 
 
 # Basic incremental stream
@@ -211,12 +201,13 @@ class SourceTwitterAdsById(AbstractSource):
 
     @staticmethod
     def get_account_id(config: Mapping[str, Any]) -> MutableMapping[str, Any]:
-        if "account_id" in config and config["account_id"].strip():
-            return config["account_id"]
+        if 'credentials' in config and "account_id" in config['credentials'] and config['credentials']["account_id"].strip():
+            return config['credentials']["account_id"]
 
     def check_connection(self, logger: logging.Logger, config: Mapping[str, Any]) -> Tuple[bool, any]:
         logger.info("Checking the config")
         try:
+
             if account_id := self.get_account_id(config=config):
                 twitter_client = TwitterClient(**config)
                 return True, twitter_client
@@ -228,4 +219,5 @@ class SourceTwitterAdsById(AbstractSource):
 
     def streams(self, config: Mapping[str, Any]) -> List[Stream]:
         twitter_client = TwitterClient(**config)
-        return [Campaigns(twitter_client, config), CampaignInsights(twitter_client, config)]
+        # return [CampaignInsights(twitter_client, config)]
+        return [Campaigns(twitter_client, config)]
